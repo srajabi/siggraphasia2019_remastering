@@ -99,77 +99,81 @@ block = 5
 with torch.no_grad():
    it = 0
    while True:
-      frame_pos = it*block
-      if frame_pos >= nframes:
-         break
-      cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-      if block >= nframes-frame_pos:
-         proc_g = nframes-frame_pos
-      else:
-         proc_g = block
-
-      input = None
-      gtC = None
-      for i in range(proc_g):
-         index = frame_pos + i
-         _, frame = cap.read()
-         frame = cv2.resize(frame, (t_w, t_h))
-         nchannels = frame.shape[2]
-         if nchannels == 1 or not opt.disable_colorization:
-            frame_l = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-            cv2.imwrite(outputdir_in+'%07d.png'%index, frame_l)
-            frame_l = torch.from_numpy(frame_l).view( frame_l.shape[0], frame_l.shape[1], 1 )
-            frame_l = frame_l.permute(2, 0, 1).float() # HWC to CHW
-            frame_l /= 255.
-            frame_l = frame_l.view(1, frame_l.size(0), 1, frame_l.size(1), frame_l.size(2))
-         elif nchannels == 3:
-            cv2.imwrite(outputdir_in+'%07d.png'%index, frame)
-            frame = frame[:,:,::-1] ## BGR -> RGB
-            frame_l, frame_ab = utils.convertRGB2LABTensor( frame )
-            frame_l = frame_l.view(1, frame_l.size(0), 1, frame_l.size(1), frame_l.size(2))
-            frame_ab = frame_ab.view(1, frame_ab.size(0), 1, frame_ab.size(1), frame_ab.size(2))
-
-         input = frame_l if i==0 else torch.cat( (input, frame_l), 2 )
-         if nchannels==3 and opt.disable_colorization:
-            gtC = frame_ab if i==0 else torch.cat( (gtC, frame_ab), 2 )
-      
-      input = input.to( device )
-
-      # Perform restoration
-      output_l = modelR( input ) # [B, C, T, H, W]
-
-      # Save restoration output without colorization when using the option [--disable_colorization]
-      if opt.disable_colorization:
-         for i in range( proc_g ):
-            index = frame_pos + i
-            if nchannels==3:
-               out_l = output_l.detach()[0,:,i].cpu()
-               out_ab = gtC[0,:,i].cpu()
-               out = torch.cat((out_l, out_ab),dim=0).detach().numpy().transpose((1, 2, 0))
-               out = Image.fromarray( np.uint8( utils.convertLAB2RGB( out )*255 ) )
-               out.save( outputdir_out+'%07d.png'%(index) )
-            else:
-               save_image( output_l.detach()[0,:,i], outputdir_out+'%07d.png'%(index), nrow=1 )
-      # Perform colorization
-      else:
-         if opt.reference_dir=='none':
-            output_ab = modelC( output_l )
+      try:
+         frame_pos = it*block
+         if frame_pos >= nframes:
+            break
+         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
+         if block >= nframes-frame_pos:
+            proc_g = nframes-frame_pos
          else:
-            output_ab = modelC( output_l, refimgs )
-         output_l = output_l.detach().cpu()
-         output_ab = output_ab.detach().cpu()
-         
-         # Save output frames of restoration with colorization
-         for i in range( proc_g ):
-            index = frame_pos + i
-            out_l = output_l[0,:,i,:,:]
-            out_c = output_ab[0,:,i,:,:]
-            output = torch.cat((out_l, out_c), dim=0).numpy().transpose((1, 2, 0))
-            output = Image.fromarray( np.uint8( utils.convertLAB2RGB( output )*255 ) )
-            output.save( outputdir_out+'%07d.png'%index )
+            proc_g = block
 
-      it = it + 1
-      pbar.update(proc_g)
+         input = None
+         gtC = None
+         for i in range(proc_g):
+            index = frame_pos + i
+            _, frame = cap.read()
+            frame = cv2.resize(frame, (t_w, t_h))
+            nchannels = frame.shape[2]
+            if nchannels == 1 or not opt.disable_colorization:
+               frame_l = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+               cv2.imwrite(outputdir_in+'%07d.png'%index, frame_l)
+               frame_l = torch.from_numpy(frame_l).view( frame_l.shape[0], frame_l.shape[1], 1 )
+               frame_l = frame_l.permute(2, 0, 1).float() # HWC to CHW
+               frame_l /= 255.
+               frame_l = frame_l.view(1, frame_l.size(0), 1, frame_l.size(1), frame_l.size(2))
+            elif nchannels == 3:
+               cv2.imwrite(outputdir_in+'%07d.png'%index, frame)
+               frame = frame[:,:,::-1] ## BGR -> RGB
+               frame_l, frame_ab = utils.convertRGB2LABTensor( frame )
+               frame_l = frame_l.view(1, frame_l.size(0), 1, frame_l.size(1), frame_l.size(2))
+               frame_ab = frame_ab.view(1, frame_ab.size(0), 1, frame_ab.size(1), frame_ab.size(2))
+
+            input = frame_l if i==0 else torch.cat( (input, frame_l), 2 )
+            if nchannels==3 and opt.disable_colorization:
+               gtC = frame_ab if i==0 else torch.cat( (gtC, frame_ab), 2 )
+         
+         input = input.to( device )
+
+         # Perform restoration
+         output_l = modelR( input ) # [B, C, T, H, W]
+
+         # Save restoration output without colorization when using the option [--disable_colorization]
+         if opt.disable_colorization:
+            for i in range( proc_g ):
+               index = frame_pos + i
+               if nchannels==3:
+                  out_l = output_l.detach()[0,:,i].cpu()
+                  out_ab = gtC[0,:,i].cpu()
+                  out = torch.cat((out_l, out_ab),dim=0).detach().numpy().transpose((1, 2, 0))
+                  out = Image.fromarray( np.uint8( utils.convertLAB2RGB( out )*255 ) )
+                  out.save( outputdir_out+'%07d.png'%(index) )
+               else:
+                  save_image( output_l.detach()[0,:,i], outputdir_out+'%07d.png'%(index), nrow=1 )
+         # Perform colorization
+         else:
+            if opt.reference_dir=='none':
+               output_ab = modelC( output_l )
+            else:
+               output_ab = modelC( output_l, refimgs )
+            output_l = output_l.detach().cpu()
+            output_ab = output_ab.detach().cpu()
+            
+            # Save output frames of restoration with colorization
+            for i in range( proc_g ):
+               index = frame_pos + i
+               out_l = output_l[0,:,i,:,:]
+               out_c = output_ab[0,:,i,:,:]
+               output = torch.cat((out_l, out_c), dim=0).numpy().transpose((1, 2, 0))
+               output = Image.fromarray( np.uint8( utils.convertLAB2RGB( output )*255 ) )
+               output.save( outputdir_out+'%07d.png'%index )
+
+         it = it + 1
+         pbar.update(proc_g)
+      except Exception as e:
+         print(str(e))
+         break
    
    # Save result videos
    outfile = opt.input.split('/')[-1].split('.')[0]
